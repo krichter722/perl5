@@ -2615,8 +2615,8 @@ S_get_and_check_backslash_N_name_wrapper(pTHX_ const char* s, const char* const 
     return result;
 }
 
-STATIC SV*
-S_get_and_check_backslash_N_name(pTHX_ const char* s, const char* const e, const char ** error_msg)
+SV*
+Perl_get_and_check_backslash_N_name(pTHX_ const char* s, const char* const e, const char ** error_msg)
 {
     /* <s> points to first character of interior of \N{}, <e> to one beyond the
      * interior, hence to the "}".  Finds what the name resolves to, returning
