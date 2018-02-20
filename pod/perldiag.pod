@@ -4031,6 +4031,7 @@ of code points, so this is made an error.
 =item \N{NAME} must be resolved by the lexer in regex; marked by
 S<<-- HERE> in m/%s/
 
+XXX
 (F) When compiling a regex pattern, an unresolved named character or
 sequence was encountered.  This can happen in any of several ways that
 bypass the lexer, such as using single-quotish context, or an extra
