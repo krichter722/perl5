@@ -133,8 +133,10 @@ struct RExC_state_t {
     char	*start;			/* Start of input for compile */
     char	*end;			/* End of input for compile */
     char	*parse;			/* Input-scan pointer. */
-    char        *adjusted_start;        /* 'start', adjusted.  See code use */
-    STRLEN      precomp_adj;            /* an offset beyond precomp.  See code use */
+    char        *copy_start;            /* start of copy of input within
+                                           constructed parse string */
+    char        *copy_start_in_input;   /* Position in input string
+                                           corresponding to copy_start */
     SSize_t	whilem_seen;		/* number of WHILEM in this expr */
     regnode	*emit_start;		/* Start of emitted-code area */
     regnode	*emit_bound;		/* First regnode outside of the
@@ -219,8 +221,8 @@ struct RExC_state_t {
 #define RExC_flags	(pRExC_state->flags)
 #define RExC_pm_flags	(pRExC_state->pm_flags)
 #define RExC_precomp	(pRExC_state->precomp)
-#define RExC_precomp_adj (pRExC_state->precomp_adj)
-#define RExC_adjusted_start  (pRExC_state->adjusted_start)
+#define RExC_copy_start_in_input (pRExC_state->copy_start_in_input)
+#define RExC_copy_start_in_constructed  (pRExC_state->copy_start)
 #define RExC_precomp_end (pRExC_state->precomp_end)
 #define RExC_rx_sv	(pRExC_state->rx_sv)
 #define RExC_rx		(pRExC_state->rx)
@@ -635,25 +637,22 @@ static const scan_data_t zero_scan_data = {
  * corresponds to xC.  xC >= tC, since the portion of the string sC..tC has
  * been constructed by us, and so shouldn't have errors.  We get:
  *
- *      xI = sI + (tI - sI) + (xC - tC)
+ *      xI = tI + (xC - tC)
  *
- * and, the offset into sI is:
- *
- *      (xI - sI) = (tI - sI) + (xC - tC)
- *
- * When the substitute is constructed, we save (tI -sI) as RExC_precomp_adj,
- * and we save tC as RExC_adjusted_start.
+ * When the substitute is constructed, we save:
+ *  tI => RExC_copy_start_in_input
+ *  tC => RExC_copy_start_in_constructed
  *
  * During normal processing of the input pattern, everything points to that,
- * with RExC_precomp_adj set to 0, and RExC_adjusted_start set to sI.
+ * with both RExC_copy_start_in_input and RExC_copy_start_in_constructed set to
+ * sI.
  */
 
-#define tI_sI           RExC_precomp_adj
-#define tC              RExC_adjusted_start
-#define sC              RExC_precomp
-#define xI_offset(xC)   ((IV) (tI_sI + (xC - tC)))
-#define xI(xC)          (sC + xI_offset(xC))
-#define eC              RExC_precomp_end
+#define sI              RExC_precomp
+#define eI              RExC_precomp_end
+#define tI              RExC_copy_start_in_input
+#define tC              RExC_copy_start_in_constructed
+#define xI(xC)          (tI + (xC - tC))
 
 #define REPORT_LOCATION_ARGS(xC)                                            \
     UTF8fARG(UTF,                                                           \
@@ -668,8 +667,8 @@ static const scan_data_t zero_scan_data = {
                                     ((int) (eC - sC)), sC), 0)),            \
              sC),         /* The input pattern printed up to the <--HERE */ \
     UTF8fARG(UTF,                                                           \
-             (xI(xC) > eC) ? 0 : eC - xI(xC), /* Length after <--HERE */    \
-             (xI(xC) > eC) ? eC : xI(xC))     /* pattern after <--HERE */
+             (xI(xC) > eI) ? 0 : eI - xI(xC), /* Length after <--HERE */    \
+             (xI(xC) > eI) ? eI : xI(xC))     /* pattern after <--HERE */
 
 /* Used to point after bad bytes for an error message, but avoid skipping
  * past a nul byte. */
@@ -7153,8 +7152,7 @@ Perl_re_op_compile(pTHX_ SV ** const patternp, int pat_count,
 	set_regex_charset(&rx_flags, REGEX_UNICODE_CHARSET);
     }
 
-    RExC_precomp = exp;
-    RExC_precomp_adj = 0;
+    RExC_copy_start_in_constructed = RExC_copy_start_in_input = RExC_precomp = exp;
     RExC_flags = rx_flags;
     RExC_pm_flags = pm_flags;
 
@@ -7187,7 +7185,7 @@ Perl_re_op_compile(pTHX_ SV ** const patternp, int pat_count,
 
     /* First pass: determine size, legality. */
     RExC_parse = exp;
-    RExC_start = RExC_adjusted_start = exp;
+    RExC_start = RExC_copy_start_in_constructed = exp;
     RExC_end = exp + plen;
     RExC_precomp_end = RExC_end;
     RExC_naughty = 0;
@@ -16560,7 +16558,7 @@ S_regclass(pTHX_ RExC_state_t *pRExC_state, I32 *flagp, U32 depth,
 
     regnode * const orig_emit = RExC_emit; /* Save the original RExC_emit in
         case we need to change the emitted regop to an EXACT. */
-    const char * orig_parse = RExC_parse;
+    char * orig_parse = RExC_parse;
     const SSize_t orig_size = RExC_size;
     bool posixl_matches_all = FALSE; /* Does /l class have both e.g. \W,\w ? */
 
@@ -17741,15 +17739,16 @@ S_regclass(pTHX_ RExC_state_t *pRExC_state, I32 *flagp, U32 depth,
 	char *save_end = RExC_end;
 	char *save_parse = RExC_parse;
 	char *save_start = RExC_start;
-        STRLEN prefix_end = 0;      /* We copy the character class after a
-                                       prefix supplied here.  This is the size
-                                       + 1 of that prefix */
+        Size_t constructed_prefix_len = 0; /* This gives the length of the
+                                              constructed portion of the
+                                              substitute parse. */
         bool first_time = TRUE;     /* First multi-char occurrence doesn't get
                                        a "|" */
         I32 reg_flags;
 
         assert(! invert);
-        assert(RExC_precomp_adj == 0); /* Only one level of recursion allowed */
+        /* Only one level of recursion allowed */
+        assert(RExC_copy_start_in_constructed == RExC_precomp);
 
 #if 0   /* Have decided not to deal with multi-char folds in inverted classes,
            because too confusing */
@@ -17787,7 +17786,7 @@ S_regclass(pTHX_ RExC_state_t *pRExC_state, I32 *flagp, U32 depth,
          * multi-character folds, have to include it in recursive parsing */
         if (element_count) {
             sv_catpvs(substitute_parse, "|[");
-            prefix_end = SvCUR(substitute_parse);
+            constructed_prefix_len = SvCUR(substitute_parse);
             sv_catpvn(substitute_parse, orig_parse, RExC_parse - orig_parse);
 
             /* Put in a closing ']' only if not going off the end, as otherwise
@@ -17810,9 +17809,9 @@ S_regclass(pTHX_ RExC_state_t *pRExC_state, I32 *flagp, U32 depth,
         /* Set up the data structure so that any errors will be properly
          * reported.  See the comments at the definition of
          * REPORT_LOCATION_ARGS for details */
-        RExC_precomp_adj = orig_parse - RExC_precomp;
-	RExC_start =  RExC_parse = SvPV(substitute_parse, len);
-        RExC_adjusted_start = RExC_start + prefix_end;
+        RExC_copy_start_in_input = orig_parse;
+	RExC_start = RExC_parse = SvPV(substitute_parse, len);
+        RExC_copy_start_in_constructed = RExC_start + constructed_prefix_len;
 	RExC_end = RExC_parse + len;
         RExC_in_multi_char_class = 1;
         RExC_emit = (regnode *)orig_emit;
@@ -17823,8 +17822,7 @@ S_regclass(pTHX_ RExC_state_t *pRExC_state, I32 *flagp, U32 depth,
 
         /* And restore so can parse the rest of the pattern */
         RExC_parse = save_parse;
-	RExC_start = RExC_adjusted_start = save_start;
-        RExC_precomp_adj = 0;
+	RExC_start = RExC_copy_start_in_constructed = RExC_copy_start_in_input = save_start;
 	RExC_end = save_end;
 	RExC_in_multi_char_class = 0;
         SvREFCNT_dec_NN(multi_char_matches);
