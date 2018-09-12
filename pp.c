@@ -1504,7 +1504,7 @@ PP(pp_divide)
                 ) {
                 /* Integer division can't overflow, but it can be imprecise.  */
 		const UV result = left / right;
-                if (result * right == left) {
+                if (left % right == 0) {
                     SP--; /* result is valid */
                     if (left_non_neg == right_non_neg) {
                         /* signs identical, result is positive.  */
