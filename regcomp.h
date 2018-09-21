@@ -218,7 +218,7 @@ struct regnode_charclass {
 
 /* has runtime (locale) \d, \w, ..., [:posix:] classes */
 struct regnode_charclass_posixl {
-    U8	flags;
+    U8	flags;                      /* ANYOF_MATCHES_POSIXL bit must go here */
     U8  type;
     U16 next_off;
     U32 arg1;
@@ -236,7 +236,7 @@ struct regnode_charclass_posixl {
  * have a pointer field because there is no alignment issue, and because it is
  * set to NULL after construction, before any cloning of the pattern */
 struct regnode_ssc {
-    U8	flags;
+    U8	flags;                      /* ANYOF_MATCHES_POSIXL bit must go here */
     U8  type;
     U16 next_off;
     U32 arg1;
@@ -252,8 +252,10 @@ struct regnode_ssc {
  *  actually using it: by setting it to 1.  This allows us to test and
  *  distinguish between an SSC and other ANYOF node types, as 'next_off' cannot
  *  otherwise be 1, because it is the offset to the next regnode expressed in
- *  units of regnodes.  Since an ANYOF node contains extra fields, it would
- *  require a 512 bit word for the offset to be just 1 */
+ *  units of regnodes.  Since an ANYOF node contains extra fields, it adds up
+ *  to 12 regnode units on 32-bit systems, (hence the minimum this can be (if
+ *  not 0) is 11 there.  Even if things get tightly packed on a 64-bit system,
+ *  it still would be more than 1. */
 #define set_ANYOF_SYNTHETIC(n) STMT_START{ OP(n) = ANYOF;              \
                                            NEXT_OFF(n) = 1;            \
                                } STMT_END
@@ -452,7 +454,7 @@ struct regnode_ssc {
  *      unclear if this should have a flag or not.  But, this flag can be
  *      shared with another, so it doesn't occupy extra space.
  *
- * At the moment, there are two spare bits, but this could be increased by
+ * At the moment, there is one spare bit, but this could be increased by
  * various tricks:
  *
  * If just one more bit is needed, as of this writing it seems to khw that the
@@ -466,13 +468,18 @@ struct regnode_ssc {
  * handler function, as the macro REGINCLASS in regexec.c does now for other
  * cases.
  *
- * Another possibility is to make all ANYOFL nodes be ANYOF_POSIXL nodes, which
- * have an extra 32 bits beyond what a regular ANYOFL one does, with 30 of
- * those bits used for the POSIX class flags, so the ANYOFL_FOLD and
- * ANYOFL_SHARED_UTF8_LOCALE_fold_HAS_MATCHES_nonfold_REQD flags could be moved
- * to the spare bits.  That would mean the 30 bits become a bit field and extra
- * instructions would have to be generated to tease it apart from the other two
- * bits.
+ * Another possibility is based on the fact that ANYOF_MATCHES_POSIXL is
+ * redundant with the node type ANYOFPOSIXL.  That flag could be removed, but
+ * at the expense of extra code in regexec.c.  The flag has been retained
+ * because it allows us to see if we need to call reginsert, or just use the
+ * bitmap in one test.
+ *
+ * If this is done, an extension would be to make all ANYOFL nodes contain the
+ * extra 32 bits that ANYOFPOSIXL ones do.  The posix flags only occupy 30
+ * bits, so the ANYOFL_SHARED_UTF8_LOCALE_fold_HAS_MATCHES_nonfold_REQD flags
+ * and ANYOFL_FOLD could be moved to that extra space, but it would mean extra
+ * instructions, as there are currently places in the code that assume those
+ * two bits are zero.
  *
  * All told, 5 bits could be available for other uses if all of the above were
  * done.
@@ -493,7 +500,7 @@ struct regnode_ssc {
  * is used for runtime \d, \w, [:posix:], ..., which are used only in locale
  * and the optimizer's synthetic start class.  Non-locale \d, etc are resolved
  * at compile-time.  Only set under /l; can be in SSC */
-/* Spare: Be sure to change ANYOF_FLAGS_ALL if this gets used  0x10 */
+#define ANYOF_MATCHES_POSIXL                    0x02
 
 /* The fold is calculated and stored in the bitmap where possible at compile
  * time.  However under locale, the actual folding varies depending on
@@ -556,7 +563,7 @@ struct regnode_ssc {
 
 #define ANYOF_FLAGS_ALL		(0xff & ~0x10)
 
-#define ANYOF_LOCALE_FLAGS (ANYOFL_FOLD)
+#define ANYOF_LOCALE_FLAGS (ANYOFL_FOLD | ANYOF_MATCHES_POSIXL)
 
 /* These are the flags that apply to both regular ANYOF nodes and synthetic
  * start class nodes during construction of the SSC.  During finalization of
@@ -661,9 +668,12 @@ struct regnode_ssc {
 
 /* Shifts a bit to get, eg. 0x4000_0000, then subtracts 1 to get 0x3FFF_FFFF */
 #define ANYOF_POSIXL_SETALL(ret) STMT_START { ((regnode_charclass_posixl*) (ret))->classflags = ((1U << ((ANYOF_POSIXL_MAX) - 1))) - 1; } STMT_END
+#define ANYOF_CLASS_SETALL(ret) ANYOF_POSIXL_SETALL(ret)
 
-/* This regnode isn't used unless at least one bit is set */
-#define ANYOF_POSIXL_TEST_ANY_SET(p) (OP(p) == ANYOFPOSIXL)
+#define ANYOF_POSIXL_TEST_ANY_SET(p)                               \
+        ((ANYOF_FLAGS(p) & ANYOF_MATCHES_POSIXL)                           \
+	 && (((regnode_charclass_posixl*)(p))->classflags))
+#define ANYOF_CLASS_TEST_ANY_SET(p) ANYOF_POSIXL_TEST_ANY_SET(p)
 
 /* Since an SSC always has this field, we don't have to test for that; nor do
  * we want to because the bit isn't set for SSC during its construction */
@@ -672,7 +682,14 @@ struct regnode_ssc {
 #define ANYOF_POSIXL_SSC_TEST_ALL_SET(p) /* Are all bits set? */       \
         (((regnode_ssc*) (p))->classflags                              \
                         == ((1U << ((ANYOF_POSIXL_MAX) - 1))) - 1)
+
+#define ANYOF_POSIXL_TEST_ALL_SET(p)                                   \
+        ((ANYOF_FLAGS(p) & ANYOF_MATCHES_POSIXL)                               \
+         && ((regnode_charclass_posixl*) (p))->classflags              \
+                        == ((1U << ((ANYOF_POSIXL_MAX) - 1))) - 1)
+
 #define ANYOF_POSIXL_OR(source, dest) STMT_START { (dest)->classflags |= (source)->classflags ; } STMT_END
+#define ANYOF_CLASS_OR(source, dest) ANYOF_POSIXL_OR((source), (dest))
 
 #define ANYOF_POSIXL_AND(source, dest) STMT_START { (dest)->classflags &= (source)->classflags ; } STMT_END
 
