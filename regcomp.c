@@ -1448,9 +1448,11 @@ S_ssc_init(pTHX_ const RExC_state_t *pRExC_state, regnode_ssc *ssc)
      * test cases for locale, many parts of it may not work properly, it is
      * safest to avoid locale unless necessary. */
     if (RExC_contains_locale) {
+        OP(ssc) = ANYOFPOSIXL;
 	ANYOF_POSIXL_SETALL(ssc);
     }
     else {
+        OP(ssc) = ANYOF;
 	ANYOF_POSIXL_ZERO(ssc);
     }
 }
@@ -1481,7 +1483,7 @@ S_ssc_is_cp_posixl_init(const RExC_state_t *pRExC_state,
         return FALSE;
     }
 
-    if (RExC_contains_locale && ! ANYOF_POSIXL_SSC_TEST_ALL_SET(ssc)) {
+    if (OP(ssc) == ANYOFPOSIXL && ! ANYOF_POSIXL_SSC_TEST_ALL_SET(ssc)) {
         return FALSE;
     }
 
@@ -1616,8 +1618,7 @@ S_get_ANYOF_cp_list_for_ssc(pTHX_ const RExC_state_t *pRExC_state,
 #define ssc_match_all_cp(ssc) ssc_add_range(ssc, 0, UV_MAX)
 
 /* 'AND' a given class with another one.  Can create false positives.  'ssc'
- * should not be inverted.  'and_with->flags & ANYOF_MATCHES_POSIXL' should be
- * 0 if 'and_with' is a regnode_charclass instead of a regnode_ssc. */
+ * should not be inverted. */
 
 STATIC void
 S_ssc_and(pTHX_ const RExC_state_t *pRExC_state, regnode_ssc *ssc,
@@ -1720,7 +1721,7 @@ S_ssc_and(pTHX_ const RExC_state_t *pRExC_state, regnode_ssc *ssc,
 
         /* If either P1 or P2 is empty, the intersection will be also; can skip
          * the loop */
-        if (! (ANYOF_FLAGS(and_with) & ANYOF_MATCHES_POSIXL)) {
+        if (OP(and_with) !=  ANYOFPOSIXL) {
             ANYOF_POSIXL_ZERO(ssc);
         }
         else if (ANYOF_POSIXL_SSC_TEST_ANY_SET(ssc)) {
@@ -1780,16 +1781,16 @@ S_ssc_and(pTHX_ const RExC_state_t *pRExC_state, regnode_ssc *ssc,
             else {
                 ssc->invlist = anded_cp_list;
                 ANYOF_POSIXL_ZERO(ssc);
-                if (ANYOF_FLAGS(and_with) & ANYOF_MATCHES_POSIXL) {
+                if (OP(and_with) == ANYOFPOSIXL) {
                     ANYOF_POSIXL_OR((regnode_charclass_posixl*) and_with, ssc);
                 }
             }
         }
         else if (ANYOF_POSIXL_SSC_TEST_ANY_SET(ssc)
-                 || (ANYOF_FLAGS(and_with) & ANYOF_MATCHES_POSIXL))
+                 || OP(and_with) == ANYOFPOSIXL)
         {
             /* One or the other of P1, P2 is non-empty. */
-            if (ANYOF_FLAGS(and_with) & ANYOF_MATCHES_POSIXL) {
+            if (OP(and_with) == ANYOFPOSIXL) {
                 ANYOF_POSIXL_AND((regnode_charclass_posixl*) and_with, ssc);
             }
             ssc_union(ssc, anded_cp_list, FALSE);
@@ -1861,7 +1862,7 @@ S_ssc_or(pTHX_ const RExC_state_t *pRExC_state, regnode_ssc *ssc,
     {
         /* We ignore P2, leaving P1 going forward */
     }   /* else  Not inverted */
-    else if (ANYOF_FLAGS(or_with) & ANYOF_MATCHES_POSIXL) {
+    else if (OP(or_with) == ANYOFPOSIXL) {
         ANYOF_POSIXL_OR((regnode_charclass_posixl*)or_with, ssc);
         if (ANYOF_POSIXL_SSC_TEST_ANY_SET(ssc)) {
             unsigned int i;
@@ -2039,7 +2040,6 @@ S_ssc_finalize(pTHX_ RExC_state_t *pRExC_state, regnode_ssc *ssc)
     ssc->invlist = NULL;
 
     if (ANYOF_POSIXL_SSC_TEST_ANY_SET(ssc)) {
-        ANYOF_FLAGS(ssc) |= ANYOF_MATCHES_POSIXL;
         OP(ssc) = ANYOFPOSIXL;
     }
     else if (RExC_contains_locale) {
@@ -17215,7 +17215,6 @@ S_regclass(pTHX_ RExC_state_t *pRExC_state, I32 *flagp, U32 depth,
                  * by locale, and hence are dealt with separately */
                 if (! need_class) {
                     need_class = 1;
-                    anyof_flags |= ANYOF_MATCHES_POSIXL;
 
                     /* We can't change this into some other type of node
                      * (unless this is the only element, in which case there
@@ -17226,15 +17225,14 @@ S_regclass(pTHX_ RExC_state_t *pRExC_state, I32 *flagp, U32 depth,
 
                 /* Coverity thinks it is possible for this to be negative; both
                  * jhi and khw think it's not, but be safer */
-                assert(! (anyof_flags & ANYOF_MATCHES_POSIXL)
+                assert( ! posixl
                        || (namedclass + ((namedclass % 2) ? -1 : 1)) >= 0);
 
                 /* See if it already matches the complement of this POSIX
                  * class */
-                if (  (anyof_flags & ANYOF_MATCHES_POSIXL)
-                    && POSIXL_TEST(posixl, namedclass + ((namedclass % 2)
-                                                         ? -1
-                                                         : 1)))
+                if (POSIXL_TEST(posixl, namedclass + ((namedclass % 2)
+                                                      ? -1
+                                                      : 1)))
                 {
                     posixl_matches_all = TRUE;
                     break;  /* No need to continue.  Since it matches both
@@ -18364,7 +18362,7 @@ S_regclass(pTHX_ RExC_state_t *pRExC_state, I32 *flagp, U32 depth,
     if (     cp_list
         &&   invert
         &&   OP(REGNODE_p(ret)) != ANYOFD
-        && ! (ANYOF_FLAGS(REGNODE_p(ret)) & (ANYOF_LOCALE_FLAGS))
+        && ! (ANYOF_FLAGS(REGNODE_p(ret)) & ANYOF_LOCALE_FLAGS)
 	&& ! HAS_NONLOCALE_RUNTIME_PROPERTY_DEFINITION)
     {
         _invlist_invert(cp_list);
@@ -21209,6 +21207,23 @@ S_put_charclass_bitmap_innards(pTHX_ SV *sv,
         invlist = _new_invlist(NUM_ANYOF_CODE_POINTS / 2);
     }
 
+    if (OP(node) == ANYOFPOSIXL) {
+        int i;
+
+        /* what matches isn't determinable except during execution, so
+         * don't know enough here to invert */
+        inverting_allowed = FALSE;
+
+        /* What the posix classes match also varies at runtime, so these
+         * will be output symbolically. */
+        posixes = newSVpvs("");
+        for (i = 0; i < ANYOF_POSIXL_MAX; i++) {
+            if (ANYOF_POSIXL_TEST(node,i)) {
+                sv_catpv(posixes, anyofs[i]);
+            }
+        }
+    }
+
     if (flags) {
         if (OP(node) == ANYOFD) {
 
@@ -21227,27 +21242,11 @@ S_put_charclass_bitmap_innards(pTHX_ SV *sv,
                 not_utf8 = invlist_clone(PL_UpperLatin1, NULL);
             }
         }
-        else if (OP(node) == ANYOFL || OP(node) == ANYOFPOSIXL) {
+        else if (OP(node) == ANYOFL && (flags & ANYOFL_FOLD)) {
 
-            /* If either of these flags are set, what matches isn't
-             * determinable except during execution, so don't know enough here
-             * to invert */
-            if (flags & (ANYOFL_FOLD|ANYOF_MATCHES_POSIXL)) {
-                inverting_allowed = FALSE;
-            }
-
-            /* What the posix classes match also varies at runtime, so these
-             * will be output symbolically. */
-            if (ANYOF_POSIXL_TEST_ANY_SET(node)) {
-                int i;
-
-                posixes = newSVpvs("");
-                for (i = 0; i < ANYOF_POSIXL_MAX; i++) {
-                    if (ANYOF_POSIXL_TEST(node, i)) {
-                        sv_catpv(posixes, anyofs[i]);
-                    }
-                }
-            }
+            /* what matches isn't determinable except during execution, so
+             * don't know enough here to invert */
+            inverting_allowed = FALSE;
         }
     }
 

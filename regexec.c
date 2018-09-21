@@ -2248,7 +2248,7 @@ S_find_byclass(pTHX_ regexp * prog, const regnode *c, char *s,
             REXEC_FBC_CLASS_SCAN(1, /* 1=>is-utf8 */
                       reginclass(prog, c, (U8*)s, (U8*) strend, utf8_target));
         }
-        else if (ANYOF_FLAGS(c)) {
+        else if (ANYOF_FLAGS(c) || OP(c) == ANYOFPOSIXL) {
             REXEC_FBC_CLASS_SCAN(0, reginclass(prog,c, (U8*)s, (U8*)s+1, 0));
         }
         else {
@@ -6716,7 +6716,16 @@ S_regmatch(pTHX_ regmatch_info *reginfo, char *startpos, regnode *prog)
             {
               Perl_ck_warner(aTHX_ packWARN(WARN_LOCALE), utf8_locale_required);
             }
-            /* FALLTHROUGH */
+
+            if (NEXTCHR_IS_EOS)
+                sayNO;
+
+            if (!reginclass(rex, scan, (U8*)locinput, (U8*)reginfo->strend,
+                                                               utf8_target))
+                sayNO;
+            locinput += UTF8SKIP(locinput);
+            break;
+
 	case ANYOFD:  /*   /[abc]/d       */
 	case ANYOF:  /*   /[abc]/       */
             if (NEXTCHR_IS_EOS)
@@ -9372,7 +9381,7 @@ S_regrepeat(pTHX_ regexp *prog, char **startposp, const regnode *p,
 		hardcount++;
 	    }
 	}
-        else if (ANYOF_FLAGS(p)) {
+        else if (ANYOF_FLAGS(p) || OP(p) == ANYOFPOSIXL) {
 	    while (scan < loceol
                     && reginclass(prog, p, (U8*)scan, (U8*)scan+1, 0))
 		scan++;
