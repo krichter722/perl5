@@ -13468,12 +13468,12 @@ S_regatom(pTHX_ RExC_state_t *pRExC_state, I32 *flagp, U32 depth)
                     if (
                         /* any numeric escape < 10 is always a backref */
                         num > 9
-                        /* any numeric escape < RExC_npar is a backref */
-                        && num >= RExC_npar
                         /* cannot be an octal escape if it starts with 8 */
                         && *RExC_parse != '8'
                         /* cannot be an octal escape it it starts with 9 */
                         && *RExC_parse != '9'
+                        /* any numeric escape < RExC_npar is a backref */
+                        && num >= RExC_npar
                     )
                     {
                         /* Probably not a backref, instead likely to be an
