@@ -610,38 +610,48 @@ static const scan_data_t zero_scan_data = {
  * the form of something that is completely different from the input, or
  * something that uses the input as part of the alternate.  In the first case,
  * there should be no possibility of an error, as we are in complete control of
- * the alternate string.  But in the second case we don't control the input
- * portion, so there may be errors in that.  Here's an example:
+ * the alternate string.  But in the second case we don't completely control
+ * the input portion, so there may be errors in that.  Here's an example:
  *      /[abc\x{DF}def]/ui
  * is handled specially because \x{df} folds to a sequence of more than one
- * character, 'ss'.  What is done is to create and parse an alternate string,
+ * character: 'ss'.  What is done is to create and parse an alternate string,
  * which looks like this:
  *      /(?:\x{DF}|[abc\x{DF}def])/ui
  * where it uses the input unchanged in the middle of something it constructs,
- * which is a branch for the DF outside the character class, and clustering
+ * which is a branch for the DF outside the character class, and non-clustering
  * parens around the whole thing. (It knows enough to skip the DF inside the
  * class while in this substitute parse.) 'abc' and 'def' may have errors that
  * need to be reported.  The general situation looks like this:
  *
+ *                                       |<------- identical ------>|
  *              sI                       tI               xI       eI
- * Input:       ----------------------------------------------------
+ * Input:       ---------------------------------------------------------------
  * Constructed:         ---------------------------------------------------
  *                      sC               tC               xC       eC     EC
+ *                                       |<------- identical ------>|
  *
- * The input string sI..eI is the input pattern.  The string sC..EC is the
- * constructed substitute parse string.  The portions sC..tC and eC..EC are
- * constructed by us.  The portion tC..eC is an exact duplicate of the input
- * pattern tI..eI.  In the diagram, these are vertically aligned.  Suppose that
- * while parsing, we find an error at xC.  We want to display a message showing
- * the real input string.  Thus we need to find the point xI in it which
- * corresponds to xC.  xC >= tC, since the portion of the string sC..tC has
- * been constructed by us, and so shouldn't have errors.  We get:
+ * sI..eI   is the portion of the input pattern we are concerned with here.
+ * sC..EC   is the constructed substitute parse string.
+ * sC..tC   is constructed by us
+ * eC..EC   is also constructed by us.
+ * tC..eC   is an exact duplicate of the portion of the input pattern tI..eI.
+ *          In the diagram, these are vertically aligned.
+ * xC       is the position in the substitute parse string where we found an
+ *          error.
+ * xI       is the position in the original pattern corresponding to xC.
+ *
+ * We want to display a message showing the real input string.  Thus we need to
+ * translate from xC to xI.  xC >= tC, since the portion of the string sC..tC
+ * has been constructed by us, and so shouldn't have errors.  We get:
  *
  *      xI = tI + (xC - tC)
  *
- * When the substitute is constructed, we save:
- *  tI => RExC_copy_start_in_input
- *  tC => RExC_copy_start_in_constructed
+ * When the substitute parse is constructed, the code needs to set:
+ *      RExC_start (sC)
+ *      RExC_end (eC)
+ *      RExC_copy_start_in_input  (tI)
+ *      RExC_copy_start_in_constructed (tC)
+ * and restore them when done.
  *
  * During normal processing of the input pattern, everything points to that,
  * with both RExC_copy_start_in_input and RExC_copy_start_in_constructed set to
@@ -650,13 +660,16 @@ static const scan_data_t zero_scan_data = {
 
 #define sI              RExC_precomp
 #define eI              RExC_precomp_end
+#define sC              RExC_start
+#define eC              RExC_end
 #define tI              RExC_copy_start_in_input
 #define tC              RExC_copy_start_in_constructed
 #define xI(xC)          (tI + (xC - tC))
+#define xI_offset(xC)   (xI(xC) - sI)
 
 #define REPORT_LOCATION_ARGS(xC)                                            \
     UTF8fARG(UTF,                                                           \
-             (xI(xC) > eC) /* Don't run off end */                          \
+             (xI(xC) > eI) /* Don't run off end */                          \
               ? eC - sC   /* Length before the <--HERE */                   \
               : ((xI_offset(xC) >= 0)                                       \
                  ? xI_offset(xC)                                            \
@@ -665,7 +678,7 @@ static const scan_data_t zero_scan_data = {
                                     " pattern %.*s",                        \
                                     __FILE__, __LINE__, xI_offset(xC),      \
                                     ((int) (eC - sC)), sC), 0)),            \
-             sC),         /* The input pattern printed up to the <--HERE */ \
+             sI),         /* The input pattern printed up to the <--HERE */ \
     UTF8fARG(UTF,                                                           \
              (xI(xC) > eI) ? 0 : eI - xI(xC), /* Length after <--HERE */    \
              (xI(xC) > eI) ? eI : xI(xC))     /* pattern after <--HERE */
