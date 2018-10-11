@@ -10,6 +10,7 @@ BEGIN {
 }
 
 skip_all_without_unicode_tables();
+#skip_all();
 
 use strict;
 use open qw(:utf8 :std);
@@ -529,6 +530,7 @@ my @warning = (
     '/(?=a)*/' => '(?=a)* matches null string many times {#} m/(?=a)*{#}/',
     'my $x = \'\m\'; qr/a$x/' => 'Unrecognized escape \m passed through {#} m/a\m{#}/',
     '/\q/' => 'Unrecognized escape \q passed through {#} m/\q{#}/',
+    '/\q\p{Any}/' => 'Unrecognized escape \q passed through {#} m/\q{#}\p{Any}/',
 
     # These two tests do not include the marker, because regcomp.c no
     # longer knows where it goes by the time this warning is emitted.
@@ -728,6 +730,7 @@ for my $strict ("", "use re 'strict';") {
             no warnings 'experimental::regex_sets';
             no warnings 'experimental::script_run';
             no warnings 'experimental::re_strict';
+            no warnings 'experimental::alpha_assertions';
 
             warning_is(sub {
                     my $meaning_of_life;
@@ -837,11 +840,11 @@ for my $strict ("",  "no warnings 'experimental::re_strict'; use re 'strict';") 
                 {
                     if (@got < @expect) {
                         $count = @got;
-                        note "Expected warnings not gotten:\n\t" . join "\n\t",
+                        diag "Expected warnings not gotten:\n\t" . join "\n\t",
                                                     @expect[$count .. $#expect];
                     }
                     else {
-                        note "Unexpected warnings gotten:\n\t" . join("\n\t",
+                        diag "Unexpected warnings gotten:\n\t" . join("\n\t",
                                                          @got[$count .. $#got]);
                     }
                 }

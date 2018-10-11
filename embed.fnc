@@ -2368,6 +2368,7 @@ Es	|regnode_offset|regnode_guts|NN RExC_state_t *pRExC_state          \
 				|const U8 op				   \
 				|const STRLEN extra_len			   \
 				|NN const char* const name
+Es	|void	|change_engine_size|NN RExC_state_t *pRExC_state|const Ptrdiff_t size
 Es	|regnode_offset|reganode|NN RExC_state_t *pRExC_state|U8 op \
 				|U32 arg
 Es	|regnode_offset|reg2Lanode|NN RExC_state_t *pRExC_state		   \
@@ -2422,14 +2423,16 @@ Es	|regnode_offset|reg_node|NN RExC_state_t *pRExC_state|U8 op
 Es	|regnode_offset|regpiece|NN RExC_state_t *pRExC_state \
 				|NN I32 *flagp|U32 depth
 Es	|bool	|grok_bslash_N	|NN RExC_state_t *pRExC_state		    \
-				|NULLOK regnode_offset* nodep			    \
+				|NULLOK regnode_offset* nodep		    \
 				|NULLOK UV *code_point_p		    \
 				|NULLOK int* cp_count			    \
 				|NN I32 *flagp				    \
 				|const bool strict			    \
 				|const U32 depth
 Es	|void	|reginsert	|NN RExC_state_t *pRExC_state \
-				|U8 op|regnode_offset operand|U32 depth
+				|const U8 op				    \
+				|const regnode_offset operand		    \
+				|const U32 depth
 Es	|void	|regtail	|NN RExC_state_t * pRExC_state		    \
 				|NN const regnode_offset p		    \
 				|NN const regnode_offset val		    \

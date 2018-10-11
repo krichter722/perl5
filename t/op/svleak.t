@@ -15,6 +15,7 @@ BEGIN {
 
 use Config;
 
+skip_all(); # XXX
 plan tests => 149;
 
 # run some code N times. If the number of SVs at the end of loop N is
