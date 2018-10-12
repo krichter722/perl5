@@ -7166,9 +7166,6 @@ Perl_re_op_compile(pTHX_ SV ** const patternp, int pat_count,
         RExC_mysv2= sv_newmortal();
     });
 
-    if (re_debug_flags & RE_DEBUG_COMPILE_MASK) {
-        int khw = 0;
-    }
     DEBUG_COMPILE_r({
             SV *dsv= sv_newmortal();
             RE_PV_QUOTED_DECL(s, RExC_utf8, dsv, exp, plen, PL_dump_re_max_len);
@@ -11649,9 +11646,11 @@ S_reg(pTHX_ RExC_state_t *pRExC_state, I32 paren, I32 *flagp, U32 depth)
 		    }
 		    else
                         REGTAIL(pRExC_state, ret, ender);
-                    /*RExC_size++; /* XXX WHY do we need this?!!
+#if 0
+                    RExC_size++; /* XXX WHY do we need this?!!
                                     For large programs it seems to be required
                                     but I can't figure out why. -- dmq*/
+#endif
 		    return ret;
 		}
                 RExC_parse += UTF ? UTF8SKIP(RExC_parse) : 1;
@@ -12055,7 +12054,7 @@ S_regbranch(pTHX_ RExC_state_t *pRExC_state, I32 *flagp, I32 first, U32 depth)
 	    /* FIXME adding one for every branch after the first is probably
 	     * excessive now we have TRIE support. (hv) */
 	    MARK_NAUGHTY(1);
-            if (     chain /*- br*/ > BRANCH_MAX_OFFSET
+            if (     chain /*- br*/ > (SSize_t) BRANCH_MAX_OFFSET
                 && ! RExC_use_BRANCHJ)
             {
                 REQUIRE_BRANCHJ(flagp, 0);
@@ -13611,8 +13610,8 @@ S_regatom(pTHX_ RExC_state_t *pRExC_state, I32 *flagp, U32 depth)
              * created for the new category. */
             U8 node_type = EXACT;
 
-            Ptrdiff_t initial_size = STR_SZ(MIN(RExC_end - RExC_parse, 256));
-            initial_size = STR_SZ(256); /* XXX because of utf8 fold expansion */
+            /*Ptrdiff_t initial_size = STR_SZ(MIN(RExC_end - RExC_parse, 256));*/
+            Ptrdiff_t initial_size = STR_SZ(256); /* XXX because of utf8 fold expansion */
 
             bool next_is_quantifier;
             char * oldp = NULL;
@@ -19160,14 +19159,15 @@ S_regnode_guts(pTHX_ RExC_state_t *pRExC_state, const U8 op, const STRLEN extra_
 
     PERL_ARGS_ASSERT_REGNODE_GUTS;
 
-    assert(extra_size >= regarglen[op] || PL_regkind[op] == ANYOF);
-
     SIZE_ALIGN(RExC_size);
     change_engine_size(pRExC_state, (Ptrdiff_t) 1 + extra_size);
     NODE_ALIGN_FILL(REGNODE_p(ret));
 #ifndef RE_TRACK_PATTERN_OFFSETS
     PERL_UNUSED_ARG(name);
+    PERL_UNUSED_ARG(op);
 #else
+    assert(extra_size >= regarglen[op] || PL_regkind[op] == ANYOF);
+
     if (RExC_offsets) {         /* MJD */
 	MJD_OFFSET_DEBUG(
               ("%s:%d: (op %s) %s %" UVuf " (len %" UVuf ") (max %" UVuf ").\n",
