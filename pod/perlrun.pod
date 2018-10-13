@@ -853,7 +853,7 @@ This speeds startup at the expense of some disk space (which you
 can minimize by stripping the executable).  (Still, a "hello world"
 executable comes out to about 200K on my machine.)  If you want to
 execute a portion of your program before dumping, use the C<CORE::dump()>
-fundtion instead.  Note: availability of I<undump> is platform
+function instead.  Note: availability of I<undump> is platform
 specific and may not be available for a specific port of Perl.
 
 =item B<-U>
